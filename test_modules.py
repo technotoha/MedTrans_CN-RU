@@ -138,12 +138,14 @@ async def test_translation():
         
         # Создаём тестовые элементы
         elem1 = DocumentElement(
+            id="test_elem_1",
             element_type=ElementType.TEXT,
             content="医生诊断患者患有急性支气管炎。",
             page_number=1,
             position=0
         )
         elem2 = DocumentElement(
+            id="test_elem_2",
             element_type=ElementType.TEXT,
             content="处方药：阿莫西林 500mg，每日三次。",
             page_number=1,
