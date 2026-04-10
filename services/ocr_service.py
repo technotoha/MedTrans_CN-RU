@@ -9,7 +9,7 @@ from typing import Optional, List
 from PIL import Image
 import pytesseract
 from config.settings import settings
-from utils.image_utils import preprocess_image_for_ocr
+from utils.image_utils import preprocess_image, cv2_to_pil
 
 logger = logging.getLogger(__name__)
 
