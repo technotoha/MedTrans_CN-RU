@@ -9,14 +9,14 @@ from typing import Optional, List
 from PIL import Image
 import pytesseract
 from config.settings import settings
-from utils.image_utils import preprocess_image, cv2_to_pil
+from utils.image_utils import preprocess_image, cv2_to_pil, preprocess_image_for_ocr
 
 logger = logging.getLogger(__name__)
 
 class OCRService:
     def __init__(self):
-        self.config_lang = settings.OCR_LANG  # Исправлено: было settings.ocr.lang
-        self.psm_mode = settings.OCR_PSM_MODE # Исправлено: было settings.ocr.psm_mode
+        self.config_lang = settings.OCR_LANGUAGES
+        self.psm_mode = settings.OCR_PSM
         logger.info(f"OCR Service initialized with languages: {self.config_lang}")
 
     async def recognize(self, image_data: bytes, lang: Optional[str] = None) -> str:

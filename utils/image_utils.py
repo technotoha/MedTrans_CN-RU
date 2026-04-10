@@ -6,8 +6,52 @@ Enhances image quality to improve OCR accuracy.
 import numpy as np
 from PIL import Image, ImageFilter, ImageEnhance
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 import cv2
+
+
+def preprocess_image_for_ocr(image: Union[Image.Image, np.ndarray]) -> np.ndarray:
+    """
+    Preprocess a PIL or numpy image for OCR.
+    
+    Args:
+        image: PIL Image or numpy array
+        
+    Returns:
+        Processed image as numpy array
+    """
+    # Convert PIL to numpy if needed
+    if isinstance(image, Image.Image):
+        img_array = pil_to_cv2(image)
+    else:
+        img_array = image.copy()
+    
+    # Convert to grayscale
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img_array
+    
+    # Denoise
+    gray = cv2.fastNlMeansDenoising(gray, h=10)
+    
+    # Adaptive thresholding (binarize)
+    binary = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        11,
+        2
+    )
+    
+    # Sharpen
+    kernel = np.array([[-1, -1, -1],
+                       [-1,  9, -1],
+                       [-1, -1, -1]])
+    sharpened = cv2.filter2D(binary, -1, kernel)
+    
+    return sharpened
 
 
 def preprocess_image(
