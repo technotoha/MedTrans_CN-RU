@@ -35,13 +35,19 @@ class OCRService:
     
     def __init__(self):
         """Initialize the OCR service."""
-        self.config = settings.ocr
         self.logger = logger
+        
+        # OCR настройки из settings
+        self.lang = settings.OCR_LANGUAGES
+        self.dpi = settings.OCR_DPI
+        self.psm = settings.OCR_PSM
+        self.oem = settings.OCR_OEM
+        self.preprocess = True  # Всегда применять препроцессинг
         
         # Configure Tesseract if path is specified
         # tesseract_cmd can be set via environment or config
-        if hasattr(self.config, 'tesseract_path') and self.config.tesseract_path:
-            pytesseract.pytesseract.tesseract_cmd = self.config.tesseract_path
+        if hasattr(settings, 'TESSERACT_PATH') and settings.TESSERACT_PATH:
+            pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
     
     @timer(logger, "OCR processing")
     async def process_pages(
@@ -86,7 +92,7 @@ class OCRService:
         pdf_page = doc[page.page_number - 1]
         
         # High-resolution rendering for better OCR
-        zoom = self.config.dpi / 72  # Convert DPI to zoom factor
+        zoom = self.dpi / 72  # Convert DPI to zoom factor
         matrix = fitz.Matrix(zoom, zoom)
         pix = pdf_page.get_pixmap(matrix=matrix)
         
@@ -97,11 +103,11 @@ class OCRService:
         doc.close()
         
         # Preprocess image
-        if self.config.preprocess:
+        if self.preprocess:
             try:
                 processed_img, meta = preprocess_image(
                     str(img_path),
-                    dpi=self.config.dpi
+                    dpi=self.dpi
                 )
                 self.logger.debug(
                     f"Preprocessed page {page.page_number}: {meta['operations']}"
@@ -129,7 +135,7 @@ class OCRService:
                 page_number=page.page_number,
                 position=0,
                 is_ocr=True,
-                metadata={"ocr_engine": "tesseract", "lang": self.config.lang}
+                metadata={"ocr_engine": "tesseract", "lang": self.lang}
             )
             
             # Add OCR text as primary content if no text was extracted
@@ -159,10 +165,10 @@ class OCRService:
         loop = asyncio.get_event_loop()
         
         def run_ocr():
-            custom_config = f'--oem {self.config.oem} --psm {self.config.psm}'
+            custom_config = f'--oem {self.oem} --psm {self.psm}'
             text = pytesseract.image_to_string(
                 image,
-                lang=self.config.lang,
+                lang=self.lang,
                 config=custom_config
             )
             return text
@@ -187,7 +193,7 @@ class OCRService:
         """
         try:
             # Load and preprocess image
-            if self.config.preprocess:
+            if self.preprocess:
                 processed_img, meta = preprocess_image(image_path)
                 pil_img = cv2_to_pil(processed_img)
             else:
@@ -228,7 +234,7 @@ class OCRService:
         """
         image = Image.open(io.BytesIO(image_bytes))
         
-        if self.config.preprocess:
+        if self.preprocess:
             # Convert to numpy for preprocessing
             img_array = np.array(image)
             if len(img_array.shape) == 3:
@@ -246,8 +252,8 @@ class OCRService:
             finally:
                 Path(temp_path).unlink(missing_ok=True)
         
-        lang = lang or self.config.lang
-        custom_config = f'--oem {self.config.oem} --psm {self.config.psm}'
+        lang = lang or self.lang
+        custom_config = f'--oem {self.oem} --psm {self.psm}'
         
         loop = asyncio.get_event_loop()
         
