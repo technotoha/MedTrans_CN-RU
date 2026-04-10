@@ -10,148 +10,248 @@ PDF Translation Pipeline - Модульный тестер
     python test_modules.py --module all --input test.pdf
 """
 import sys
+import argparse
 from pathlib import Path
 
-# Добавляем путь к директории src в sys.path
-src_path = Path(__file__).parent / "src"
-sys.path.append(str(src_path))
+# Добавляем путь к директории проекта в sys.path
+project_path = Path(__file__).parent
+sys.path.append(str(project_path))
 
-from core.document_processor import DocumentProcessor
-from core.translation_service import LLMTranslationService
-from core.docx_builder import DocxBuilder
-from core.models import PageContent, DocumentElement, TableData, ElementType, TranslationChunk
-from utils.logger import setup_logger
+from services.pdf_extractor import PDFExtractor
+from services.ocr_service import OCRService
+from services.llm_translator import LLMTranslationService
+from models.document_models import PageContent, DocumentElement, TableData, ElementType, TranslationChunk
+from utils.logging_utils import setup_logger, get_logger
 
-logger = setup_logger()
+logger = get_logger(__name__)
+setup_logger()
 
-def test_extraction():
+
+async def test_extraction(input_file: str):
     """Тестирование извлечения содержимого из PDF"""
-    processor = DocumentProcessor()
+    print("╭──────────────────────────────────╮")
+    print("│ Тестирование извлечения контента │")
+    print("╰──────────────────────────────────╯")
     
-    # Проверяем наличие тестового файла
-    test_file = Path("test_files") / "sample_document.pdf"
-    if not test_file.exists():
-        print(f"Тестовый файл {test_file} не найден")
-        return False
+    extractor = PDFExtractor(dpi=300)
     
     try:
-        pages = processor.extract_pages(test_file)
-        print(f"Извлечено страниц: {len(pages)}")
+        pages = await extractor.extract_all(input_file)
+        print(f"✅ Успешно извлечено {len(pages)} страниц.")
         
-        for i, page in enumerate(pages):
-            print(f"Страница {i + 1}: {len(page.elements)} элементов")
+        total_elements = 0
+        total_text_chars = 0
+        
+        for page in pages:
+            elements_count = len(page.elements)
+            text_chars = sum(
+                len(elem.content) 
+                for elem in page.elements 
+                if elem.element_type == ElementType.TEXT
+            )
+            total_elements += elements_count
+            total_text_chars += text_chars
             
-            for element in page.elements:
+            print(f"  Страница {page.page_number}: {elements_count} элементов, {text_chars} символов текста.")
+            
+            # Выводим первые несколько элементов для демонстрации
+            for i, element in enumerate(page.elements[:3]):
                 if element.element_type == ElementType.TEXT:
-                    print(f"  Текст: {element.content[:100]}...")
+                    preview = element.content[:80].replace('\n', ' ')
+                    print(f"    [{element.element_type.value}]: {preview}...")
                 elif element.element_type == ElementType.TABLE:
-                    table_data = element.content
-                    print(f"  Таблица: {table_data.rows} строк, {table_data.cols} столбцов")
-                    
+                    table = element.table_data
+                    print(f"    [TABLE]: {table.rows if table else 'N/A'} строк")
+                elif element.element_type == ElementType.IMAGE:
+                    print(f"    [IMAGE]: {element.image_path}")
+            
+            if len(page.elements) > 3:
+                print(f"    ... и ещё {len(page.elements) - 3} элементов")
+            
+            # Проверка необходимости OCR
+            if page.ocr_required:
+                print(f"  ⚠️  Страница {page.page_number} требует OCR (мало текста или есть изображения)")
+        
+        print(f"📊 Всего элементов: {total_elements}")
+        print(f"📝 Всего символов текста: {total_text_chars}")
+        
         return len(pages) > 0
         
     except Exception as e:
         logger.error(f"Ошибка при извлечении: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
-def test_translation():
-    """Тестирование перевода текста"""
+
+async def test_ocr(input_file: str):
+    """Тестирование OCR модуля"""
+    print("╭──────────────────────────────╮")
+    print("│ Тестирование модуля OCR      │")
+    print("╰──────────────────────────────╯")
+    
+    try:
+        ocr_service = OCRService()
+        print(f"✅ OCR сервис инициализирован. Языки: {ocr_service.config_lang}")
+        
+        # Для OCR нужны изображения страниц
+        # Рендерим страницу в изображение и передаём на OCR
+        import fitz
+        doc = fitz.open(input_file)
+        
+        for page_num in range(min(len(doc), 1)):  # Тестируем первую страницу
+            page = doc[page_num]
+            
+            # Рендерим страницу в изображение
+            mat = fitz.Matrix(300/72, 300/72)  # 300 DPI
+            pix = page.get_pixmap(matrix=mat)
+            img_data = pix.tobytes("png")
+            
+            print(f"\n🔍 OCR страницы {page_num + 1}...")
+            text = await ocr_service.recognize(img_data)
+            
+            if text:
+                print(f"✅ Распознанный текст ({len(text)} символов):")
+                print(f"   {text[:200]}{'...' if len(text) > 200 else ''}")
+            else:
+                print("⚠️  Текст не распознан (возможно, нет текста на изображении)")
+        
+        doc.close()
+        return True
+        
+    except Exception as e:
+        logger.error(f"Ошибка при OCR: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+async def test_translation():
+    """Тестирование модуля перевода"""
+    print("╭──────────────────────────────╮")
+    print("│ Тестирование модуля перевода │")
+    print("╰──────────────────────────────╯")
+    
     try:
         translator = LLMTranslationService()
+        print("✅ Сервис перевода инициализирован.")
         
-        # Подготовим тестовые чанки для перевода
+        # Создаём тестовые элементы
+        elem1 = DocumentElement(
+            element_type=ElementType.TEXT,
+            content="医生诊断患者患有急性支气管炎。",
+            page_number=1,
+            position=0
+        )
+        elem2 = DocumentElement(
+            element_type=ElementType.TEXT,
+            content="处方药：阿莫西林 500mg，每日三次。",
+            page_number=1,
+            position=1
+        )
+        
+        # Тестовые чанки с китайским текстом
         chunks = [
             TranslationChunk(
-                id=1,
-                text="This is a sample text for translation testing.",
-                context="Test document",
-                element_type=ElementType.TEXT
+                chunk_id="chunk_1",
+                elements=[elem1],
+                source_text="医生诊断患者患有急性支气管炎。"
             ),
             TranslationChunk(
-                id=2,
-                text="Another paragraph to translate.",
-                context="Test document",
-                element_type=ElementType.TEXT
+                chunk_id="chunk_2",
+                elements=[elem2],
+                source_text="处方药：阿莫西林 500mg，每日三次。"
             )
         ]
         
-        print("Начинаем перевод...")
-        translated_chunks = translator.translate_chunks(chunks)
+        print("\n🔄 Перевод тестовых чанков...")
+        translated_chunks = await translator.translate_chunks(chunks)
         
         for original, translated in zip(chunks, translated_chunks):
-            print(f"Оригинал: {original.text}")
-            print(f"Перевод: {translated}")
+            print(f"\nОригинал (zh): {original.source_text}")
+            print(f"Перевод (ru):   {translated.translated_text or 'N/A'}")
             print("-" * 50)
-            
+        
         return True
         
     except Exception as e:
         logger.error(f"Ошибка при переводе: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
-def test_docx_creation():
-    """Тестирование создания DOCX файла"""
-    try:
-        builder = DocxBuilder()
-        
-        # Создаем тестовое содержимое документа
-        pages_content = [
-            PageContent(
-                page_num=1,
-                elements=[
-                    DocumentElement(
-                        element_type=ElementType.TEXT,
-                        content="Привет, это тестовый текст.",
-                        formatting={}
-                    ),
-                    DocumentElement(
-                        element_type=ElementType.TABLE,
-                        content=TableData(
-                            headers=["Имя", "Возраст"],
-                            rows=[["Иван", "30"], ["Мария", "25"]]
-                        ),
-                        formatting={"style": "Table Grid"}
-                    )
-                ]
-            )
-        ]
-        
-        output_path = Path("output") / "test_output.docx"
-        output_path.parent.mkdir(exist_ok=True)
-        
-        builder.build_document(pages_content, str(output_path))
-        
-        if output_path.exists():
-            print(f"DOCX файл успешно создан: {output_path}")
-            return True
-        else:
-            print("DOCX файл не был создан")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Ошибка при создании DOCX: {e}")
-        return False
 
-def main():
-    """Основная функция для запуска всех тестов"""
-    print("Запуск тестов модулей...")
+async def main():
+    """Основная функция для запуска тестов"""
+    parser = argparse.ArgumentParser(description="Тестирование модулей PDF переводчика")
+    parser.add_argument(
+        "--module", 
+        choices=["extract", "ocr", "translate", "all"],
+        default="all",
+        help="Модуль для тестирования"
+    )
+    parser.add_argument(
+        "--input",
+        type=str,
+        help="Путь к входному PDF файлу"
+    )
+    parser.add_argument(
+        "--text",
+        type=str,
+        help="Текст для перевода (для теста translate)"
+    )
     
-    print("\n1. Тестирование извлечения содержимого:")
-    extraction_success = test_extraction()
+    args = parser.parse_args()
     
-    print("\n2. Тестирование перевода:")
-    translation_success = test_translation()
+    # Определяем входной файл
+    input_file = args.input
+    if not input_file:
+        # Поиск тестового файла по умолчанию
+        for path in [
+            Path("input/test3.pdf"),
+            Path("test3.pdf"),
+            Path("input/sample.pdf")
+        ]:
+            if path.exists():
+                input_file = str(path)
+                break
     
-    print("\n3. Тестирование создания DOCX:")
-    docx_success = test_docx_creation()
+    if args.module in ["extract", "ocr", "all"] and not input_file:
+        print("❌ Ошибка: Не указан входной PDF файл!")
+        print("Используйте --input <путь_к_файлу>")
+        sys.exit(1)
     
-    print(f"\nРезультаты тестов:")
-    print(f"Извлечение: {'Успешно' if extraction_success else 'Ошибка'}")
-    print(f"Перевод: {'Успешно' if translation_success else 'Ошибка'}")
-    print(f"Создание DOCX: {'Успешно' if docx_success else 'Ошибка'}")
+    print("╭──────────────────────────────────╮")
+    print("│ ПОЛНОЕ ТЕСТИРОВАНИЕ ВСЕХ МОДУЛЕЙ │")
+    print("╰──────────────────────────────────╯")
     
-    all_tests_passed = extraction_success and translation_success and docx_success
-    print(f"\nВсе тесты пройдены: {'Да' if all_tests_passed else 'Нет'}")
+    results = {}
+    
+    # Тест извлечения
+    if args.module in ["extract", "all"]:
+        results["extraction"] = await test_extraction(input_file)
+        print()
+    
+    # Тест OCR
+    if args.module in ["ocr", "all"]:
+        results["ocr"] = await test_ocr(input_file)
+        print()
+    
+    # Тест перевода
+    if args.module in ["translate", "all"]:
+        results["translation"] = await test_translation()
+    
+    # Итоги
+    print("\n" + "=" * 40)
+    print("ИТОГИ ТЕСТИРОВАНИЯ:")
+    for module, success in results.items():
+        status = "✅ Успешно" if success else "❌ Ошибка"
+        print(f"  {module}: {status}")
+    
+    all_passed = all(results.values())
+    print(f"\nВсе тесты пройдены: {'Да' if all_passed else 'Нет'}")
+
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
