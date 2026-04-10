@@ -41,6 +41,7 @@ async def test_extraction(input_file: str):
         
         total_elements = 0
         total_text_chars = 0
+        total_tables = 0
         
         for page in pages:
             elements_count = len(page.elements)
@@ -49,10 +50,15 @@ async def test_extraction(input_file: str):
                 for elem in page.elements 
                 if elem.element_type == ElementType.TEXT
             )
+            table_count = sum(
+                1 for elem in page.elements 
+                if elem.element_type == ElementType.TABLE
+            )
+            total_tables += table_count
             total_elements += elements_count
             total_text_chars += text_chars
             
-            print(f"  Страница {page.page_number}: {elements_count} элементов, {text_chars} символов текста.")
+            print(f"  Страница {page.page_number}: {elements_count} элементов, {text_chars} символов текста, {table_count} таблиц(ы).")
             
             # Выводим первые несколько элементов для демонстрации
             for i, element in enumerate(page.elements[:3]):
@@ -74,6 +80,7 @@ async def test_extraction(input_file: str):
         
         print(f"📊 Всего элементов: {total_elements}")
         print(f"📝 Всего символов текста: {total_text_chars}")
+        print(f"📋 Всего таблиц: {total_tables}")
         
         return len(pages) > 0
         

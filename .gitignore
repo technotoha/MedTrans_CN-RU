@@ -1,1 +1,23 @@
-(test_modules.py is a source file, and there are no build artifacts, dependencies, or temporary files in the changes)
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Images
+temp/test_page.png
+```

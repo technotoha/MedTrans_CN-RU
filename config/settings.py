@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     
     # LLM настройки
     LLM_BASE_URL: str = Field(
-        default="http://localhost:1234/v1/chat/completions",
+        default="http://127.0.0.1:1234/v1",
         description="URL локального LLM сервера"
     )
     LLM_MODEL: str = Field(
@@ -47,8 +47,8 @@ class Settings(BaseSettings):
     
     # OCR настройки
     OCR_LANGUAGES: str = Field(
-        default="chi_sim+rus",
-        description="Языки для Tesseract (китайский + русский)"
+        default="chi_sim",
+        description="Языки для Tesseract (китайский)"
     )
     OCR_DPI: int = Field(
         default=300,
