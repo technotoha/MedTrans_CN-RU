@@ -105,6 +105,11 @@ class PDFExtractor:
             (page_content.has_images and text_density < 0.01)
         )
         
+        # Log table count
+        table_count = len([e for e in page_content.elements if e.element_type == ElementType.TABLE])
+        if table_count > 0:
+            self.logger.info(f"Page {page_num + 1}: Found {table_count} table(s)")
+        
         if page_content.ocr_required:
             self.logger.debug(
                 f"Page {page_num + 1} marked for OCR "
@@ -121,8 +126,8 @@ class PDFExtractor:
         """Extract text blocks with structure information."""
         elements = []
         
-        # Get text as dict with spans
-        blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+        # Get text as dict with spans - use rawdict for better character handling
+        blocks = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
         
         position = 0
         for block in blocks:
@@ -132,11 +137,21 @@ class PDFExtractor:
                 max_y = 0
                 min_x = float('inf')
                 max_x = 0
+                font_size = 12  # default
                 
                 for line in block.get("lines", []):
                     line_text = ""
                     for span in line.get("spans", []):
-                        line_text += span.get("text", "")
+                        # Try to get text from chars if span text is missing/garbled
+                        span_text = span.get("text", "")
+                        if not span_text or all(c == '·' for c in span_text):
+                            # Fallback: reconstruct from chars
+                            chars = span.get("chars", [])
+                            span_text = "".join(c.get("c", "") for c in chars)
+                        
+                        line_text += span_text
+                        if span.get("size"):
+                            font_size = span["size"]
                     
                     bbox = line.get("bbox", [])
                     if bbox:
@@ -155,10 +170,6 @@ class PDFExtractor:
                 element_type = ElementType.PARAGRAPH
                 
                 # Check if it might be a header (larger font, top of page)
-                first_line = block.get("lines", [{}])[0] if block.get("lines") else {}
-                first_span = first_line.get("spans", [{}])[0] if first_line.get("spans") else {}
-                font_size = first_span.get("size", 12)
-                
                 if font_size > 16 and min_y < page.rect.height * 0.1:
                     element_type = ElementType.HEADER
                 elif font_size > 14:
